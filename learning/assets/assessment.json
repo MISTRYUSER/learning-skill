@@ -1,0 +1,18 @@
+{
+  "id": "example-assessment-do-not-record",
+  "topic": "cache",
+  "knowledge_point": "request-coalescing",
+  "timestamp": "2026-10-02T10:00:00+08:00",
+  "question_id": "example-q1",
+  "scenario": "单进程缓存失效时发生并发回源",
+  "kind": "standard",
+  "assistance": "none",
+  "rating": 1,
+  "mastery": 2,
+  "answer_summary": "示例：用户将进程内请求合并误认为可跨进程共享",
+  "error": {
+    "error_type": "boundary",
+    "correct_answer": "进程内状态不能自动协调其他进程的回源请求",
+    "correction": "先确定协调状态的所有权与作用域，再判断是否满足跨进程约束"
+  }
+}

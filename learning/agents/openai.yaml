@@ -1,0 +1,4 @@
+interface:
+  display_name: "Learning"
+  short_description: "通过闭卷回忆、工程实践、具体反馈和迁移测试真正掌握技术知识"
+  default_prompt: "使用 $learning 帮我学习；先测试已有水平，再针对薄弱点训练，并维护复习计划。"
