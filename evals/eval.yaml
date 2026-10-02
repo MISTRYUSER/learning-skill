@@ -1,0 +1,35 @@
+schema_version: v1alpha1
+environment:
+  type: none
+skills:
+- source: local_path
+  path: learning
+engine:
+  name: codex
+  version: 0.159.2
+  model:
+    provider: openai
+    name: gpt-6.1-sol
+cases:
+  files:
+  - evals/cases/self-report.yaml
+  defaults:
+    timeout_seconds: 180
+    max_turns: 10
+    collect_artifacts:
+    - state/**
+  parallelism: 2
+  retry_policy:
+    max_retries: 0
+judge:
+  type: rule_based
+  success:
+  - exit_code: 0
+benchmark:
+  enabled: true
+report:
+  formats:
+  - json
+  - html
+  artifacts:
+  - transcript

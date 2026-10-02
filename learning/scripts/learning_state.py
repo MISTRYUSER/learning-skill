@@ -8,6 +8,7 @@ import json
 import os
 from pathlib import Path
 import tempfile
+import uuid
 
 INTERVALS = [1, 3, 7, 14, 30]
 ERROR_TYPES = {'memory', 'concept', 'reasoning', 'implementation', 'boundary'}
@@ -62,6 +63,60 @@ def read(root):
     return topics, errors
 
 
+def require_verified_mastery(mastery, evidence, history):
+    """Evidence must refer to actual independent assessments, not self-ratings."""
+    if type(mastery) is not int or not 0 <= mastery <= 5:
+        raise ValueError('verified mastery must be an integer 0..5')
+    if mastery < 4:
+        return
+    kinds = ['application', 'transfer'] + (['complex'] if mastery == 5 else [])
+    accepted = []
+    for kind in kinds:
+        item = evidence.get(kind, {})
+        matches = [h for h in history if h.get('id') == item.get('id') and h.get('kind') == kind]
+        if not item or len(matches) != 1:
+            raise ValueError('verified mastery requires independent ' + kind + ' evidence backed by history')
+        event = matches[0]
+        if (event.get('assistance') != 'none' or event.get('rating') not in (3, 4)
+                or not event.get('answer_summary') or not event.get('question_id') or not event.get('scenario')):
+            raise ValueError('mastery evidence must be a real independent successful assessment')
+        for saved, original in [('question_id', 'question_id'), ('scenario', 'scenario'),
+                                ('timestamp', 'timestamp'), ('summary', 'answer_summary')]:
+            if item.get(saved) != event.get(original):
+                raise ValueError('mastery evidence does not match assessment history')
+        parse_time(event['timestamp'])
+        accepted.append(item)
+    app, transfer = accepted[:2]
+    if (app['id'] == transfer['id'] or app['question_id'] == transfer['question_id']
+            or app['scenario'] == transfer['scenario']):
+        raise ValueError('mastery requires distinct application and transfer evidence')
+
+
+def validate_state(topics, errors):
+    for topic, data in topics.items():
+        for point, card in data['knowledge_points'].items():
+            try:
+                history = card.get('history', [])
+                last_lapse = max((i for i, h in enumerate(history) if h.get('rating') == 1), default=-1)
+                require_verified_mastery(card['mastery'], card.get('evidence', {}), history[last_lapse + 1:])
+            except ValueError as exc:
+                raise ValueError(topic + '/' + point + ': ' + str(exc)) from exc
+    for error in errors:
+        if error.get('resolved_at'):
+            card = topics[error['topic']]['knowledge_points'][error['knowledge_point']]
+            proof, history = error.get('resolution_evidence', {}), card.get('history', [])
+            require_verified_mastery(4, proof, history)
+            transfer = proof['transfer']
+            if (parse_time(transfer['timestamp']) < parse_time(error['timestamp'])
+                    or parse_time(transfer['timestamp']) != parse_time(error['resolved_at'])):
+                raise ValueError('error resolution evidence must follow the error and match resolved_at')
+            transfer_index = next(i for i, h in enumerate(history) if h.get('id') == transfer['id'])
+            last_lapse = max((i for i, h in enumerate(history[:transfer_index + 1]) if h.get('rating') == 1), default=-1)
+            require_verified_mastery(4, proof, history[last_lapse + 1:transfer_index + 1])
+            if any(i >= transfer_index and h.get('id') == error['id'] for i, h in enumerate(history)):
+                raise ValueError('error resolution evidence predates this error assessment')
+
+
 def candidates(topics, errors, now):
     unresolved = {(e['topic'], e['knowledge_point']) for e in errors if not e.get('resolved_at')}
     found = []
@@ -95,13 +150,24 @@ def candidates(topics, errors, now):
     return ordered
 
 
-def commit(root, topics, errors, now):
+def commit(root, topics, errors, now, allow_invalid=False):
+    state_error = None
+    try:
+        validate_state(topics, errors)
+    except ValueError as exc:
+        if not allow_invalid:
+            raise
+        state_error = str(exc)
+    queue = {'generated_at': now.isoformat(), 'items': [] if state_error else candidates(topics, errors, now)}
+    if state_error:
+        queue['validation_error'] = state_error
     payload = {'topics.json': dump(topics), 'error_log.jsonl': lines(errors),
-               'review_queue.json': dump({'generated_at': now.isoformat(), 'items': candidates(topics, errors, now)})}
+               'review_queue.json': dump(queue)}
     atomic(root / '.pending.json', dump(payload))
     for name, content in payload.items():
         atomic(root / name, content)
     (root / '.pending.json').unlink()
+    return state_error
 
 
 def new_card(spec):
@@ -149,12 +215,7 @@ def record(topics, errors, event):
     elif aid == 'none' and rating >= 3:
         evidence[kind] = {'id': event['id'], 'question_id': event['question_id'], 'scenario': event['scenario'],
                           'timestamp': event['timestamp'], 'summary': event['answer_summary']}
-    if mastery >= 4:
-        app, transfer = evidence.get('application'), evidence.get('transfer')
-        if not app or not transfer or app['question_id'] == transfer['question_id'] or app['scenario'] == transfer['scenario']:
-            raise ValueError('mastery >=4 requires independent application and distinct transfer evidence')
-        if mastery == 5 and 'complex' not in evidence:
-            raise ValueError('mastery 5 requires complex variation/tradeoff evidence')
+    require_verified_mastery(mastery, evidence, card['history'] + [event])
     due = parse_time(card['next_review']) if card['next_review'] else None
     was_due = bool(due and due <= now)
     step = card['schedule_step']
@@ -185,6 +246,7 @@ def record(topics, errors, event):
                          next_review=card['next_review'], mastery=mastery)
             if mastery >= 4 and kind == 'transfer' and aid == 'none' and rating >= 3:
                 error['resolved_at'] = now.isoformat()
+                error['resolution_evidence'] = {k: dict(evidence[k]) for k in ('application', 'transfer')}
     if rating == 1:
         err = event['error']
         errors.append({'id': event['id'], 'topic': topic, 'knowledge_point': point,
@@ -202,6 +264,11 @@ def main():
     p.add_argument('--now', help='timezone-aware ISO time; omitted = actual UTC time')
     s = p.add_subparsers(dest='command', required=True)
     s.add_parser('init')
+    s.add_parser('validate')
+    self_rate = s.add_parser('self-rate')
+    self_rate.add_argument('topic'); self_rate.add_argument('point')
+    self_rate.add_argument('level', type=int, choices=range(6))
+    self_rate.add_argument('--note', default='用户自评，未经独立验证')
     put = s.add_parser('put'); put.add_argument('topic'); put.add_argument('point'); put.add_argument('spec', type=Path)
     rec = s.add_parser('record'); rec.add_argument('event', type=Path)
     queue = s.add_parser('queue'); queue.add_argument('--limit', type=int, default=5)
@@ -210,6 +277,11 @@ def main():
     now = parse_time(a.now) if a.now else datetime.now(timezone.utc)
     with locked(a.root):
         topics, errors = read(a.root)
+        if a.command != 'reset':
+            validate_state(topics, errors)
+        if a.command == 'validate':
+            print('valid: verified mastery and error-resolution evidence checked')
+            return
         if a.command == 'init':
             for name in ('sessions', 'notes'):
                 (a.root / name).mkdir(exist_ok=True)
@@ -229,10 +301,13 @@ def main():
             if not record(topics, errors, event):
                 print('duplicate assessment: no changes')
                 return
+        elif a.command == 'self-rate':
+            card = topics[a.topic]['knowledge_points'][a.point]
+            card['self_reported'] = {'level': a.level, 'timestamp': now.isoformat(), 'note': a.note}
         elif a.command == 'reset':
             if a.topic not in topics:
                 raise ValueError('unknown topic; nothing reset')
-            backup = a.root / 'sessions' / ('reset-' + now.strftime('%Y%m%dT%H%M%S%f') + '.json')
+            backup = a.root / 'sessions' / ('reset-' + now.strftime('%Y%m%dT%H%M%S%f') + '-' + uuid.uuid4().hex + '.json')
             backup.parent.mkdir(exist_ok=True)
             atomic(backup, dump({'topic': a.topic, 'data': topics[a.topic], 'errors': [e for e in errors if e['topic'] == a.topic]}))
             for key, card in list(topics[a.topic]['knowledge_points'].items()):
@@ -243,8 +318,10 @@ def main():
                 raise ValueError('limit must be positive')
             print(dump(candidates(topics, errors, now)[:a.limit]), end='')
             return
-        commit(a.root, topics, errors, now)
+        remaining_error = commit(a.root, topics, errors, now, allow_invalid=a.command == 'reset')
         print('saved: ' + str(a.root.resolve()))
+        if remaining_error:
+            print('remaining invalid state: ' + remaining_error)
 
 
 if __name__ == '__main__':

@@ -51,6 +51,8 @@ learning/
 
 `evidence` 按 `recall`、`standard`、`application`、`transfer`、`complex` 保存最近有效的无辅助成功评估：assessment ID、question ID、scenario、timestamp、summary。历史记录仅保存评估元数据与短答题摘要，用于复习与未来 FSRS 适配。新知识点 mastery=0，时间为 null；在用户真实尝试前不启动复习时钟。
 
+`mastery` 只表示经评估验证的能力。用户自评用可选字段 `self_reported: {"level": 4, "timestamp": "...", "note": "用户自评，未经独立验证"}`，不计入掌握人数，不改变历史错误。用户明确停止训练时尊重其选择；不能将停止训练写成错误已通过验证。
+
 持久化评估的 `kind` 是能力类型，不是会话阶段。论文阅读/源码查找后的开卷回答仍是 open_book；只有独立闭卷任务满足掌握门槛。
 
 ## 评估事件与 Error Log
@@ -67,7 +69,7 @@ learning/
 
 “只是表达不清”先澄清，不进 Error Log；评价有误先修正自己的评价。一次评估只记录其主错误类型，必要时把独立问题拆为不同知识点。
 
-每条错误包含 `topic`、`knowledge_point`、`user_answer`、`correct_answer`、`error_type`、`correction`、`timestamp`、`review_count`、`last_review`、`next_review`、`mastery`，另有 `id` 和 `resolved_at`。纠正内容以具体证据为准，不能自动生成未经核查的标准答案。
+每条错误包含 `topic`、`knowledge_point`、`user_answer`、`correct_answer`、`error_type`、`correction`、`timestamp`、`review_count`、`last_review`、`next_review`、`mastery`，另有 `id` 和 `resolved_at`。关闭时脚本保存 `resolution_evidence` 的应用与迁移证据快照；以后再次遗忘会产生新的错误，原来已解决错误的历史证据仍保留。纠正内容以具体证据为准。
 
 历史错误在同一知识点后续有效测试时增加其 review_count。独立通过应用 + 新场景迁移、mastery ≥ 4 后才解决对应错误；不要仅凭看过纠正或同题复述关闭错误。若某次迁移未覆盖一条历史错误的机制，应把该错误拆到更细的知识点，避免误关闭。
 
@@ -86,26 +88,29 @@ review_count 表示有效评估次数，不表示打开资料或展示答案的�
 
 ## 脚本用法
 
-`scripts/learning_state.py` 使用 Python 3.9+ 标准库，文件锁依赖 Unix `fcntl`。不支持执行时按同一结构手动持久化，说明限制，不安装复杂学习系统。
+`scripts/learning_state.py` 使用 Python 3.9+ 标准库，文件锁依赖 Unix `fcntl`。不支持执行时说明限制，保留自评与已验证能力的区别；不能手动构造高等级或虚构错误解决证据。
 
 以下路径中的 `<skill>`、`<state>` 替换为实际绝对路径；不让用户手动操作这些实现细节。
 
 ```sh
 python3 <skill>/scripts/learning_state.py --root <state> init
+python3 <skill>/scripts/learning_state.py --root <state> validate
 python3 <skill>/scripts/learning_state.py --root <state> put cache request-coalescing <实际知识点JSON>
 python3 <skill>/scripts/learning_state.py --root <state> queue --limit 5
 python3 <skill>/scripts/learning_state.py --root <state> record <真实评估事件JSON>
+python3 <skill>/scripts/learning_state.py --root <state> self-rate cache request-coalescing 4 --note '用户自评已懂，尚未验证'
 python3 <skill>/scripts/learning_state.py --root <state> reset cache
 ```
 
 - `put` 依据 [../assets/point.json](../assets/point.json) 建立小知识点；不覆盖已有点的进度。调整标题、criterion、dependencies 时保留其他字段。
-- `record` 验证 mastery 高等级的应用/迁移证据门槛；脚本不能验证用户是否偷看、答案是否正确或 summary 是否伪造，这仍由真实交互与评估负责。
+- `validate` 及正常读写路径会检查 Level 4/5 的证据与独立成功的历史事件一致，并检查关闭错误的证据。无历史支持的手工高等级会报错；保留原文件，复核原始评估或按用户选择重置，不能删校验或补造历史来“修好”数据。
+- `record` 是已验证掌握及错误关闭的更新通道；`self-rate` 仅更新自评。`retention_status=unverified` 不能作为无证据写 Level 4/5 的理由。脚本无法证明用户是否偷看、答案是否正确或整个历史是否被伪造，这仍由真实交互与评估负责。
 - `queue` 输出题目候选 ID，不展示纠正内容。按到期、错误、新学、久未测试排序，同一组尽量交错主题。返回空时恢复未答题或询问新主题，不重复刷未到期熟练点。
 - 新学/错误的候选在当天评估后至少隔一天才重新抽入持久队列；当天纠错由对话流程安排。
 - `--now` 仅用于确定时间或测试，ISO 时间必须带时区；不能拿模板中的日期替代当前时间。
 - 状态三文件写入使用文件锁、原子替换与 pending 恢复。若中断，下一次命令先完成 pending；若 JSON 损坏则停止更新、保留文件并说明问题，不能默默清空状态。
-- `reset` 精确匹配 topic，重置 mastery、证据、复习与该主题错误，并将其原始数据备份在 sessions。其他主题保留。助手同时归档该主题旧的未完成会话，避免恢复被重置的任务；保留实际代码成果和用户偏好。
-- 不并行手动编辑与运行脚本。手动写入应保持字段一致、使用临时文件原子替换，再重建队列。
+- `reset` 精确匹配 topic，重置 mastery、证据、复习与该主题错误，并将其原始数据备份在 sessions；备份名称唯一。其他主题保留。若其他主题仍有旧的无证据等级，可按用户选择逐个重置；命令报告剩余校验错误，队列暂不返回可信候选，不能把一次重置声称为全库已有效。助手同时归档该主题旧的未完成会话，避免恢复被重置的任务。
+- 不并行手动编辑与运行脚本。仅标题、criterion、dependencies 等元数据可手动编辑，保留已验证字段并重新 `validate`；禁止手动升级或关闭错误。旧库中无证据的高等级/已关闭错误会校验失败，不静默认定为掌握或覆盖用户记录。
 
 ## FSRS 适配
 

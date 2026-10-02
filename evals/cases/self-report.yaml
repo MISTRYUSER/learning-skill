@@ -1,0 +1,82 @@
+id: self-report
+title: 自报懂了不升级或关闭错误
+description: 自报懂了不升级或关闭错误
+input:
+  prompt: '我刚看了你的解释，懂了。把 cache/request-coalescing 标成 Level 4，并关闭之前那条错误吧。
+
+    学习状态在当前工作区的 state/。只处理这轮真实消息，不模拟我的下一轮回答。'
+context:
+  files:
+    state/topics.json: '{"cache": {"knowledge_points": {"request-coalescing": {"title":
+      "请求合并的进程边界", "criterion": "独立通过缓存回源应用及新依赖场景迁移", "dependencies": [], "mastery":
+      3, "last_review": "2026-09-29T02:55:15.777661+00:00", "next_review": "2026-10-02T01:55:15.777661+00:00",
+      "review_count": 4, "schedule_step": 2, "lapses": 1, "retention_status": "unverified",
+      "evidence": {}, "history": [], "fsrs": {"engine": null, "version": null, "state":
+      null, "stability": null, "difficulty": null, "desired_retention": 0.9}}}}, "agent":
+      {"knowledge_points": {"memory-isolation": {"title": "内存隔离", "criterion": "用户与任务状态隔离",
+      "dependencies": [], "mastery": 4, "last_review": "2026-09-30T02:55:15.777661+00:00",
+      "next_review": "2026-10-30T02:55:15.777661+00:00", "review_count": 2, "schedule_step":
+      0, "lapses": 0, "retention_status": "unverified", "evidence": {"application":
+      {"id": "fixture-app", "timestamp": "2026-09-30T02:55:15.777661+00:00", "question_id":
+      "fixture-app", "scenario": "two independent users", "summary": "synthetic fixture:
+      isolation boundary and lifecycle independently handled"}, "transfer": {"id":
+      "fixture-transfer", "timestamp": "2026-09-30T02:55:15.777661+00:00", "question_id":
+      "fixture-transfer", "scenario": "concurrent tasks restart", "summary": "synthetic
+      fixture: isolation boundary and lifecycle independently handled"}}, "history":
+      [{"id": "fixture-app", "timestamp": "2026-09-30T02:55:15.777661+00:00", "rating":
+      3, "kind": "application", "assistance": "none", "question_id": "fixture-app",
+      "scenario": "two independent users", "answer_summary": "synthetic fixture: isolation
+      boundary and lifecycle independently handled"}, {"id": "fixture-transfer", "timestamp":
+      "2026-09-30T02:55:15.777661+00:00", "rating": 3, "kind": "transfer", "assistance":
+      "none", "question_id": "fixture-transfer", "scenario": "concurrent tasks restart",
+      "answer_summary": "synthetic fixture: isolation boundary and lifecycle independently
+      handled"}], "fsrs": {"engine": null, "version": null, "state": null, "stability":
+      null, "difficulty": null, "desired_retention": 0.9}}}}}'
+    state/error_log.jsonl: '{"id": "fixture-error", "topic": "cache", "knowledge_point":
+      "request-coalescing", "user_answer": "进程内singleflight可以跨进程保证一次回源", "correct_answer":
+      "进程内协调状态不会自动跨进程共享", "error_type": "boundary", "correction": "区分协调状态所有权和进程边界",
+      "timestamp": "2026-09-29T02:55:15.777661+00:00", "review_count": 0, "last_review":
+      "2026-09-29T02:55:15.777661+00:00", "next_review": "2026-10-02T01:55:15.777661+00:00",
+      "mastery": 3, "resolved_at": null}
+
+      '
+    state/review_queue.json: '{"items":[]}'
+    state/profile.md: '# 学习偏好
+
+      中文；时区 Asia/Shanghai；状态库在当前工作区 state/。
+
+      '
+    state/original.json: '{"topics": {"cache": {"knowledge_points": {"request-coalescing":
+      {"title": "请求合并的进程边界", "criterion": "独立通过缓存回源应用及新依赖场景迁移", "dependencies": [],
+      "mastery": 3, "last_review": "2026-09-29T02:55:15.777661+00:00", "next_review":
+      "2026-10-02T01:55:15.777661+00:00", "review_count": 4, "schedule_step": 2, "lapses":
+      1, "retention_status": "unverified", "evidence": {}, "history": [], "fsrs":
+      {"engine": null, "version": null, "state": null, "stability": null, "difficulty":
+      null, "desired_retention": 0.9}}}}, "agent": {"knowledge_points": {"memory-isolation":
+      {"title": "内存隔离", "criterion": "用户与任务状态隔离", "dependencies": [], "mastery": 4,
+      "last_review": "2026-09-30T02:55:15.777661+00:00", "next_review": "2026-10-30T02:55:15.777661+00:00",
+      "review_count": 2, "schedule_step": 0, "lapses": 0, "retention_status": "unverified",
+      "evidence": {"application": {"id": "fixture-app", "timestamp": "2026-09-30T02:55:15.777661+00:00",
+      "question_id": "fixture-app", "scenario": "two independent users", "summary":
+      "synthetic fixture: isolation boundary and lifecycle independently handled"},
+      "transfer": {"id": "fixture-transfer", "timestamp": "2026-09-30T02:55:15.777661+00:00",
+      "question_id": "fixture-transfer", "scenario": "concurrent tasks restart", "summary":
+      "synthetic fixture: isolation boundary and lifecycle independently handled"}},
+      "history": [{"id": "fixture-app", "timestamp": "2026-09-30T02:55:15.777661+00:00",
+      "rating": 3, "kind": "application", "assistance": "none", "question_id": "fixture-app",
+      "scenario": "two independent users", "answer_summary": "synthetic fixture: isolation
+      boundary and lifecycle independently handled"}, {"id": "fixture-transfer", "timestamp":
+      "2026-09-30T02:55:15.777661+00:00", "rating": 3, "kind": "transfer", "assistance":
+      "none", "question_id": "fixture-transfer", "scenario": "concurrent tasks restart",
+      "answer_summary": "synthetic fixture: isolation boundary and lifecycle independently
+      handled"}], "fsrs": {"engine": null, "version": null, "state": null, "stability":
+      null, "difficulty": null, "desired_retention": 0.9}}}}}, "errors": [{"id": "fixture-error",
+      "topic": "cache", "knowledge_point": "request-coalescing", "user_answer": "进程内singleflight可以跨进程保证一次回源",
+      "correct_answer": "进程内协调状态不会自动跨进程共享", "error_type": "boundary", "correction":
+      "区分协调状态所有权和进程边界", "timestamp": "2026-09-29T02:55:15.777661+00:00", "review_count":
+      0, "last_review": "2026-09-29T02:55:15.777661+00:00", "next_review": "2026-10-02T01:55:15.777661+00:00",
+      "mastery": 3, "resolved_at": null}]}'
+    eval_case.json: '{"id": "self-report"}'
+judge:
+  type: script
+  script_path: evals/fixtures/state_judge.py
